@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>如捷出行 - 掌上订制系统</title>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <style>
+        /* --- 全局布局 --- */
+        :root { --primary: #C5A059; --dark: #1e1e1e; --panel: #2d2d2d; --accent: #4a90e2; --border: #444; --nav-height: 60px; }
+        body { margin: 0; padding: 0; font-family: "PingFang SC", sans-serif; background: var(--dark); color: #ccc; height: 100vh; overflow: hidden; display: block; }
+        
+        /* 隐藏所有主视图，通过JS控制显示 */
+        .view-section { display: none; height: calc(100vh - var(--nav-height)); overflow-y: auto; -webkit-overflow-scrolling: touch; width: 100%; position: absolute; top:0; left:0; background: var(--dark); }
+        .view-section.active-view { display: block; z-index: 10; }
+
+        /* --- 1. 订单列表视图 --- */
+        .sidebar-header { padding: 15px; color: var(--primary); font-weight: bold; text-align: center; border-bottom: 1px solid var(--border); background: #111; }
+        .order-item { padding: 15px 20px; border-bottom: 1px solid #333; position: relative; background: #222; margin-bottom: 1px; }
+        .order-item.active { border-left: 4px solid var(--primary); background: #2a2a2a; }
+        .order-item h4 { margin: 0; color: #fff; font-size: 16px; }
+        .order-item p { margin: 5px 0 0; font-size: 12px; color: #888; }
+        .del-btn { position: absolute; right: 15px; top: 15px; color: #d0021b; font-size: 20px; padding: 10px; }
+        .fab-add { position: fixed; bottom: 80px; right: 20px; width: 50px; height: 50px; border-radius: 50%; background: var(--primary); color: #000; font-size: 30px; border: none; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 100; display: flex; justify-content: center; align-items: center; }
+
+        /* --- 2. 编辑视图 --- */
+        .panel-content { padding: 15px; padding-bottom: 80px; }
+        h2 { color: var(--primary); font-size: 16px; margin: 20px 0 10px 0; border-bottom: 1px solid #444; padding-bottom: 5px; display: flex; justify-content: space-between; }
+        .input-group { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        input, textarea, select { width: 100%; background: #222; border: 1px solid #555; color: #fff; padding: 10px; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 16px; outline: none; }
+        .row { display: flex; gap: 8px; }
+        button.action { padding: 10px 15px; border-radius: 4px; border: none; background: #555; color: #fff; font-size: 14px; }
+        button.action.add { background: var(--primary); color: #000; font-weight: bold; }
+        .setting-link { font-size: 12px; color: var(--accent); text-decoration: none; padding: 5px; }
+
+        /* --- 3. 预览视图 --- */
+        .preview-area { background: #555; display: flex; flex-direction: column; align-items: center; }
+        .preview-controls { width: 100%; display: flex; background: #222; padding: 10px; gap: 10px; justify-content: center; position: sticky; top: 0; z-index: 20; }
+        .p-btn { padding: 8px 15px; border-radius: 20px; border: none; font-size: 12px; font-weight: bold; background: #444; color: #ccc; }
+        .p-btn.active { background: #fff; color: #000; }
+        
+        /* 核心：A4纸手机适配缩放容器 */
+        .paper-container { width: 100%; overflow: auto; padding: 20px 0; display: flex; justify-content: center; }
+        .paper-wrapper { transform-origin: top center; transition: transform 0.3s; margin-bottom: 50px; }
+        
+        .paper { width: 210mm; min-height: 297mm; background: #fff; padding: 15mm; box-sizing: border-box; color: #333; text-align: left; box-shadow: 0 5px 20px rgba(0,0,0,0.3); display: none; }
+        .paper.show { display: block; }
+
+        /* 底部导航栏 */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: var(--nav-height); background: #111; border-top: 1px solid #333; display: flex; justify-content: space-around; align-items: center; z-index: 999; }
+        .nav-item { color: #666; font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 33%; text-align: center; }
+        .nav-item.active { color: var(--primary); }
+        .nav-icon { font-size: 20px; }
+
+        /* 导出按钮浮动区 */
+        .export-actions { position: fixed; bottom: 70px; right: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .fab-export { background: #27ae60; color: #fff; border: none; padding: 10px 20px; border-radius: 30px; font-weight: bold; shadow: 0 4px 10px rgba(0,0,0,0.3); }
+
+        /* 复用原有样式 */
+        .q-header-top { display: flex; justify-content: space-between; border-bottom: 2px solid var(--primary); padding-bottom: 10px; margin-bottom: 20px; }
+        .q-brand h1 { font-size: 24px; margin: 0; } .q-brand p { color: var(--primary); font-size: 12px; margin: 0; }
+        .q-meta-info { font-size: 12px; text-align: right; }
+        .q-vip-block { background: #FDFBF7; padding: 15px; border: 1px solid #eee; margin-bottom: 20px; }
+        .q-vip-name { font-size: 18px; font-weight: bold; }
+        .q-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .q-table th { background: #f4f4f4; padding: 8px; text-align: left; }
+        .q-table td { border-bottom: 1px solid #eee; padding: 10px 5px; }
+        .q-price { text-align: right; font-weight: bold; }
+        .q-category-header td { color: var(--primary); font-weight: bold; padding-top: 15px; border-bottom: 1px solid var(--primary); }
+        .total-box { text-align: right; margin-top: 20px; }
+        .grand-total { font-size: 22px; color: var(--primary); font-weight: bold; border-top: 1px dashed #ccc; padding-top: 10px; }
+        
+        .d-header { display: flex; justify-content: space-between; border-bottom: 2px dashed #ccc; padding-bottom: 15px; margin-bottom: 20px; }
+        .d-title { font-size: 28px; font-weight: bold; }
+        .d-tag { background: #d0021b; color: #fff; padding: 5px 12px; border-radius: 20px; font-size: 12px; height: fit-content;}
+        .d-box { border: 2px solid #333; margin-bottom: 20px; }
+        .d-box-title { background: #333; color: #fff; padding: 8px 15px; font-weight: bold; }
+        .d-box-content { padding: 15px; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+
+        /* 模态框 */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2000; display: none; align-items: center; justify-content: center; }
+        .modal-content { background: #222; width: 90%; max-height: 80vh; overflow-y: auto; padding: 20px; border-radius: 8px; }
+        .db-row { display: flex; gap: 5px; margin-bottom: 10px; align-items: center; border-bottom: 1px solid #333; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="bottom-nav">
+        <div class="nav-item active" onclick="switchTab('orders')">
+            <span class="nav-icon">📦</span>
+            <span>订单列表</span>
+        </div>
+        <div class="nav-item" onclick="switchTab('edit')">
+            <span class="nav-icon">📝</span>
+            <span>编辑行程</span>
+        </div>
+        <div class="nav-item" onclick="switchTab('preview')">
+            <span class="nav-icon">👁️</span>
+            <span>预览导出</span>
+        </div>
+    </div>
+
+    <div id="view-orders" class="view-section active-view">
+        <div class="sidebar-header">如捷出行 ERP (手机版)</div>
+        <div id="orderList" style="padding-bottom: 100px;"></div>
+        <button class="fab-add" onclick="createNewOrder()">+</button>
+    </div>
+
+    <div id="view-edit" class="view-section">
+        <div class="panel-content">
+            <h2>基本信息</h2>
+            <div class="input-group">
+                <label>贵宾姓名</label><input type="text" id="clientName" placeholder="如: 张总" oninput="autoSave()">
+                <label>行程日期</label><input type="text" id="travelDate" placeholder="10.1 - 10.5" oninput="autoSave()">
+                <div class="row">
+                    <input type="text" id="managerName" placeholder="管家姓名" oninput="autoSave()">
+                    <input type="text" id="managerPhone" placeholder="电话" oninput="autoSave()">
+                </div>
+            </div>
+
+            <h2>行程与交通</h2>
+            <div class="input-group">
+                <textarea id="routeText" rows="6" placeholder="粘贴行程安排..." oninput="autoSave()"></textarea>
+                <input type="text" id="flightInfo" placeholder="航班/大交通 (司机可见)" oninput="autoSave()" style="border-color:#d0021b">
+            </div>
+
+            <h2>车辆/向导</h2>
+            <div class="input-group">
+                <div class="row">
+                    <input type="text" id="serviceName" placeholder="项目名" style="flex:2">
+                    <input type="number" id="servicePrice" placeholder="¥" style="flex:1">
+                    <button class="action add" onclick="addService()">+</button>
+                </div>
+                <div id="serviceListDisplay"></div>
+            </div>
+
+            <h2>酒店 <span class="setting-link" onclick="openHotelDb()">[管理库]</span></h2>
+            <div class="input-group">
+                <input list="hotelDatalist" id="hotelNameInput" placeholder="搜索酒店..." onchange="matchHotelDb()">
+                <datalist id="hotelDatalist"></datalist>
+                <div class="row">
+                    <input type="text" id="roomType" placeholder="房型" style="flex:2">
+                    <input type="number" id="hotelPrice" placeholder="单价" style="flex:1">
+                </div>
+                <div class="row">
+                    <input type="number" id="hotelRooms" placeholder="间" value="1">
+                    <input type="number" id="hotelNights" placeholder="晚" value="1">
+                    <button class="action add" onclick="addHotel()">+</button>
+                </div>
+                <div id="hotelListDisplay"></div>
+            </div>
+
+            <h2>门票 <span class="setting-link" onclick="openTicketDb()">[管理库]</span></h2>
+            <div class="input-group">
+                <input list="ticketDatalist" id="spotNameInput" placeholder="搜索景点..." onchange="matchTicketDb()">
+                <datalist id="ticketDatalist"></datalist>
+                <div class="row" style="margin-top:5px;">
+                    <select id="subType" onchange="updateSubPriceFromSelection()" style="flex:1.5"><option>成人</option><option>老人</option><option>学生</option><option>儿童</option></select>
+                    <input type="number" id="subPrice" placeholder="单价" style="flex:1">
+                    <input type="number" id="subQty" placeholder="数" value="1" style="flex:0.8">
+                    <button class="action" onclick="addToStaging()">+</button>
+                </div>
+                <div id="stagingArea" style="display:none; background:#222; padding:5px; margin:5px 0;">
+                    <div id="stagingList"></div>
+                    <button class="action add" style="width:100%" onclick="commitTicket()">确认保存</button>
+                </div>
+                <div id="ticketListDisplay" style="margin-top:10px;"></div>
+            </div>
+
+            <h2>司机/备注</h2>
+            <div class="input-group">
+                <textarea id="footerNotes" rows="3" placeholder="客户看到的底部备注" oninput="autoSave()"></textarea>
+                <hr style="border-color:#444">
+                <input type="text" id="driverInfo" placeholder="司机信息 (车牌/电话)" oninput="autoSave()">
+                <textarea id="driverNotes" rows="3" placeholder="司机常规注意..." oninput="autoSave()"></textarea>
+                <textarea id="serviceRedLines" rows="2" placeholder="红线要求 (红色显示)..." style="border-color:#d0021b; color:#ff6b6b" oninput="autoSave()"></textarea>
+            </div>
+            <div style="height:50px;"></div>
+        </div>
+    </div>
+
+    <div id="view-preview" class="view-section">
+        <div class="preview-controls">
+            <button class="p-btn active" onclick="switchPaper('quote', this)">客户报价</button>
+            <button class="p-btn" onclick="switchPaper('driver', this)" style="color:#d0021b">司机派工</button>
+        </div>
+        
+        <div class="paper-container">
+            <div class="paper-wrapper" id="paperWrapper">
+                <div id="paper-quote" class="paper show">
+                    <div class="q-header-top">
+                        <div class="q-brand"><h1>如捷出行 · 私人订制方案</h1><p>Xi'an Premium Private Travel</p></div>
+                        <div class="q-meta-info"><div>日期：<span id="q_date_gen"></span></div><div>管家：<span id="q_manager"></span></div></div>
+                    </div>
+                    <div class="q-vip-block">
+                        <div class="q-vip-name">尊贵的 VIP <span id="q_client">--</span></div>
+                        <div style="font-size:13px; margin-top:5px; color:#666">行程日期：<span id="q_travel_date">--</span></div>
+                    </div>
+                    <div style="background:#f9f9f9; padding:5px 10px; font-weight:bold; border-left:4px solid var(--primary); margin-bottom:10px;">行程规划</div>
+                    <div id="q_route" style="white-space:pre-wrap; font-size:13px; line-height:1.6; margin-bottom:20px;"></div>
+                    
+                    <div style="background:#f9f9f9; padding:5px 10px; font-weight:bold; border-left:4px solid var(--primary); margin-bottom:10px;">费用明细</div>
+                    <table class="q-table">
+                        <thead><tr><th width="50%">项目</th><th width="25%">详情</th><th width="25%" style="text-align:right">小计</th></tr></thead>
+                        <tbody id="q_tbody"></tbody>
+                    </table>
+                    <div class="total-box">
+                        <div class="grand-total" id="q_total">¥0</div>
+                    </div>
+                    <div style="margin-top:30px; background:#f5f5f5; padding:15px; font-size:11px; color:#666; line-height:1.6;">
+                        <strong>特别说明：</strong><div id="q_footer_text" style="white-space:pre-wrap;"></div>
+                    </div>
+                    <div style="text-align:center; font-size:10px; color:#ccc; margin-top:30px;">西安高端出行管家 · 如捷出行</div>
+                </div>
+
+                <div id="paper-driver" class="paper driver-paper" style="border-top:10px solid #d0021b">
+                    <div class="d-header"><div class="d-title">行程接待单</div><div class="d-tag">内部绝密</div></div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:15px;">
+                        <div class="d-box"><div class="d-box-title">接待信息</div><div class="d-box-content">贵宾：<strong id="d_client"></strong><br>日期：<strong id="d_date"></strong></div></div>
+                        <div class="d-box"><div class="d-box-title">航班/酒店</div><div class="d-box-content">✈️ <span id="d_flight"></span><br>🏨 <span id="d_hotel"></span></div></div>
+                    </div>
+                    <div class="d-box"><div class="d-box-title">执行路线</div><div class="d-box-content" style="font-weight:bold; font-size:16px;" id="d_route"></div></div>
+                    <div class="d-box" style="border-color:#d0021b; background:#fff5f5;">
+                        <div class="d-box-title" style="background:#d0021b; border:none;">⚠️ 司机注意事项</div>
+                        <div class="d-box-content" id="d_notes"></div>
+                    </div>
+                    <div style="text-align:right; color:#666;">指派司机：<span id="d_driver">--</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="export-actions">
+            <button class="fab-export" onclick="exportImage('paper-quote', '报价单')">📷 保存报价图</button>
+            <button class="fab-export" onclick="exportImage('paper-driver', '派工单')" style="background:#d0021b">📄 保存派工单</button>
+        </div>
+    </div>
+
+    <div id="hotelDbModal" class="modal"><div class="modal-content"><h3 style="margin-top:0">酒店库</h3><div id="hotelDbList"></div><div class="db-row"><input id="newHName" placeholder="名"><input id="newHPrice" placeholder="价" style="width:60px"><button onclick="addHotelDbItem()">+</button></div><button onclick="document.getElementById('hotelDbModal').style.display='none'" style="width:100%;padding:10px;margin-top:10px;">关闭</button></div></div>
+    <div id="ticketDbModal" class="modal"><div class="modal-content"><h3 style="margin-top:0">门票库</h3><div id="ticketDbList"></div><div class="db-row"><input id="newTName" placeholder="名"><input id="newTP1" placeholder="价" style="width:60px"><button onclick="addTicketDbItem()">+</button></div><button onclick="document.getElementById('ticketDbModal').style.display='none'" style="width:100%;padding:10px;margin-top:10px;">关闭</button></div></div>
+
+    <script>
+        // --- 核心逻辑适配 ---
+        let orders = JSON.parse(localStorage.getItem('xa_mobile_v15_orders')) || [];
+        // 简化的默认库
+        let ticketDB = JSON.parse(localStorage.getItem('xa_ticket_db')) || [{name: "兵马俑", p1: 120}, {name: "长恨歌", p1: 358}];
+        let hotelDB = JSON.parse(localStorage.getItem('xa_hotel_db')) || [{name: "W酒店", type: "奇妙", price: 1500}];
+        
+        let currentOrderId = null;
+        let currentOrder = {};
+        let stagingTickets = [];
+
+        init();
+
+        function init() {
+            if(orders.length === 0) createNewOrder();
+            loadOrder(orders[0].id);
+            resizePaper();
+            window.addEventListener('resize', resizePaper);
+        }
+
+        function resizePaper() {
+            // 手机屏幕适配：自动计算缩放比例
+            const wrapper = document.getElementById('paperWrapper');
+            const screenWidth = window.innerWidth;
+            const paperWidthPx = 793; // 210mm in px approx
+            const scale = (screenWidth - 20) / paperWidthPx; 
+            wrapper.style.transform = `scale(${scale < 1 ? scale : 1})`;
+            wrapper.style.height = (1122 * scale) + "px"; // 保持容器高度
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active-view'));
+            document.getElementById('view-' + tabName).classList.add('active-view');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            // 简单的tab高亮逻辑
+            const idx = tabName==='orders'?0 : tabName==='edit'?1 : 2;
+            document.querySelectorAll('.nav-item')[idx].classList.add('active');
+            
+            if(tabName === 'preview') updatePreview();
+            if(tabName === 'orders') renderOrderList();
+        }
+
+        function createNewOrder() {
+            const d = new Date();
+            const newOrder = {
+                id: Date.now(), client: "新客户", travelDate: "", quoteDate: `${d.getMonth()+1}.${d.getDate()}`,
+                route: "", hotels: [], services: [], tickets: [], footerNotes: "费用包含：车费、油费、过路费。",
+                driverNotes: "车内整洁，提前到达。", serviceRedLines: "严禁吸烟，严禁推销。"
+            };
+            orders.unshift(newOrder); save(); loadOrder(newOrder.id);
+            switchTab('edit'); // 自动跳到编辑
+        }
+
+        function loadOrder(id) {
+            currentOrderId = id; currentOrder = orders.find(o => o.id === id);
+            // 填充表单
+            document.getElementById('clientName').value = currentOrder.client || "";
+            document.getElementById('travelDate').value = currentOrder.travelDate || "";
+            document.getElementById('managerName').value = currentOrder.managerName || "";
+            document.getElementById('managerPhone').value = currentOrder.managerPhone || "";
+            document.getElementById('routeText').value = currentOrder.route || "";
+            document.getElementById('flightInfo').value = currentOrder.flight || "";
+            document.getElementById('footerNotes').value = currentOrder.footerNotes || "";
+            document.getElementById('driverInfo').value = currentOrder.driverInfo || "";
+            document.getElementById('driverNotes').value = currentOrder.driverNotes || "";
+            document.getElementById('serviceRedLines').value = currentOrder.serviceRedLines || "";
+            
+            renderLists();
+        }
+
+        function save() { 
+            localStorage.setItem('xa_mobile_v15_orders', JSON.stringify(orders)); 
+        }
+        
+        function autoSave() {
+            currentOrder.client = document.getElementById('clientName').value;
+            currentOrder.travelDate = document.getElementById('travelDate').value;
+            currentOrder.managerName = document.getElementById('managerName').value;
+            currentOrder.managerPhone = document.getElementById('managerPhone').value;
+            currentOrder.route = document.getElementById('routeText').value;
+            currentOrder.flight = document.getElementById('flightInfo').value;
+            currentOrder.footerNotes = document.getElementById('footerNotes').value;
+            currentOrder.driverInfo = document.getElementById('driverInfo').value;
+            currentOrder.driverNotes = document.getElementById('driverNotes').value;
+            currentOrder.serviceRedLines = document.getElementById('serviceRedLines').value;
+            save();
+        }
+
+        function renderOrderList() {
+            document.getElementById('orderList').innerHTML = orders.map(o => `
+                <div class="order-item ${o.id === currentOrderId ? 'active' : ''}" onclick="loadOrder(${o.id});switchTab('edit')">
+                    <h4>${o.client || '未命名'} <span style="font-size:12px;font-weight:normal">(${o.quoteDate})</span></h4>
+                    <p>${o.route ? o.route.substring(0, 20)+'...' : '暂无行程'}</p>
+                    <span class="del-btn" onclick="deleteOrder(event, ${o.id})">×</span>
+                </div>
+            `).join('');
+        }
+        
+        function deleteOrder(e, id) {
+            e.stopPropagation();
+            if(confirm('删除此单？')) {
+                orders = orders.filter(o => o.id !== id);
+                save(); 
+                if(orders.length===0) createNewOrder(); 
+                else { loadOrder(orders[0].id); renderOrderList(); }
+            }
+        }
+
+        // --- 增删改逻辑 (简化版) ---
+        function addService() {
+            const name = document.getElementById('serviceName').value;
+            const price = parseFloat(document.getElementById('servicePrice').value);
+            if(name && price) { currentOrder.services.push({name, price}); autoSave(); renderLists(); document.getElementById('serviceName').value=''; }
+        }
+        function addHotel() {
+            const name = document.getElementById('hotelNameInput').value;
+            const price = parseFloat(document.getElementById('hotelPrice').value);
+            if(name && price) {
+                currentOrder.hotels.push({
+                    name, price, 
+                    type: document.getElementById('roomType').value,
+                    rooms: document.getElementById('hotelRooms').value,
+                    nights: document.getElementById('hotelNights').value
+                });
+                autoSave(); renderLists(); document.getElementById('hotelNameInput').value='';
+            }
+        }
+        function addToStaging() {
+            const price = parseFloat(document.getElementById('subPrice').value);
+            if(price) { stagingTickets.push({type: document.getElementById('subType').value, price, qty: document.getElementById('subQty').value}); renderStaging(); }
+        }
+        function renderStaging() {
+            document.getElementById('stagingArea').style.display = stagingTickets.length ? 'block' : 'none';
+            document.getElementById('stagingList').innerHTML = stagingTickets.map((t,i)=>`<div>${t.type} ¥${t.price}*${t.qty} <span onclick="stagingTickets.splice(${i},1);renderStaging()">x</span></div>`).join('');
+        }
+        function commitTicket() {
+            const name = document.getElementById('spotNameInput').value;
+            if(name && stagingTickets.length) {
+                let total = 0; stagingTickets.forEach(t=>total+=t.price*t.qty);
+                currentOrder.tickets.push({name, items:[...stagingTickets], total});
+                stagingTickets=[]; renderStaging(); autoSave(); renderLists(); document.getElementById('spotNameInput').value='';
+            }
+        }
+
+        function renderLists() {
+            const mkItem = (txt, idx, type) => `<div style="background:#2a2a2a; padding:8px; margin-bottom:5px; border-radius:4px; display:flex; justify-content:space-between;"><span>${txt}</span><span style="color:#c00" onclick="currentOrder.${type}.splice(${idx},1);autoSave();renderLists()">删除</span></div>`;
+            document.getElementById('serviceListDisplay').innerHTML = currentOrder.services.map((s,i)=>mkItem(`${s.name} (¥${s.price})`, i, 'services')).join('');
+            document.getElementById('hotelListDisplay').innerHTML = currentOrder.hotels.map((h,i)=>mkItem(`${h.name} ¥${h.price}*${h.rooms}间`, i, 'hotels')).join('');
+            document.getElementById('ticketListDisplay').innerHTML = currentOrder.tickets.map((t,i)=>mkItem(`${t.name} (¥${t.total})`, i, 'tickets')).join('');
+        }
+
+        // --- 预览渲染 ---
+        function updatePreview() {
+            document.getElementById('q_client').innerText = currentOrder.client;
+            document.getElementById('q_travel_date').innerText = currentOrder.travelDate;
+            document.getElementById('q_date_gen').innerText = currentOrder.quoteDate;
+            document.getElementById('q_manager').innerText = currentOrder.managerName;
+            document.getElementById('q_route').innerText = currentOrder.route;
+            document.getElementById('q_footer_text').innerText = currentOrder.footerNotes;
+            
+            let tbody = document.getElementById('q_tbody'); tbody.innerHTML = '';
+            let total = 0;
+            
+            currentOrder.services.forEach(s => { total+=s.price; tbody.innerHTML += `<tr><td>${s.name}</td><td>1项</td><td class="q-price">¥${s.price}</td></tr>`; });
+            currentOrder.hotels.forEach(h => { let sub=h.price*h.rooms*h.nights; total+=sub; tbody.innerHTML += `<tr><td>${h.name}</td><td>${h.type}/${h.rooms}间/${h.nights}晚</td><td class="q-price">¥${sub}</td></tr>`; });
+            currentOrder.tickets.forEach(t => { total+=t.total; tbody.innerHTML += `<tr><td>${t.name}</td><td>含 ${t.items.length} 项</td><td class="q-price">¥${t.total}</td></tr>`; });
+            
+            document.getElementById('q_total').innerText = '总计：¥' + total.toLocaleString();
+
+            // 派工单
+            document.getElementById('d_client').innerText = currentOrder.client;
+            document.getElementById('d_date').innerText = currentOrder.travelDate;
+            document.getElementById('d_route').innerText = currentOrder.route;
+            document.getElementById('d_flight').innerText = currentOrder.flight || '无';
+            document.getElementById('d_hotel').innerText = currentOrder.hotels.map(h=>h.name).join(',') || '无';
+            
+            let dNotes = currentOrder.driverNotes || "";
+            if(currentOrder.serviceRedLines) dNotes += `<br><span style="color:#d0021b;font-weight:bold">【红线】${currentOrder.serviceRedLines}</span>`;
+            document.getElementById('d_notes').innerHTML = dNotes;
+            document.getElementById('d_driver').innerText = currentOrder.driverInfo || "未指派";
+        }
+
+        function switchPaper(type, btn) {
+            document.querySelectorAll('.paper').forEach(el=>el.classList.remove('show'));
+            document.getElementById('paper-'+type).classList.add('show');
+            document.querySelectorAll('.p-btn').forEach(el=>el.classList.remove('active'));
+            btn.classList.add('active');
+            resizePaper(); // 切换时重新计算缩放
+        }
+
+        function exportImage(id, name) {
+            alert("正在生成图片，请稍候...");
+            // 临时取消缩放以获得清晰图片
+            const wrapper = document.getElementById('paperWrapper');
+            const originalTransform = wrapper.style.transform;
+            wrapper.style.transform = 'scale(1)';
+            
+            html2canvas(document.getElementById(id), { scale: 2, useCORS:true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `${name}_${currentOrder.client}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                wrapper.style.transform = originalTransform; // 恢复缩放
+            });
+        }
+
+        // 简易库逻辑
+        function openHotelDb(){ document.getElementById('hotelDbModal').style.display='flex'; renderHotelDb(); }
+        function renderHotelDb(){ document.getElementById('hotelDbList').innerHTML = hotelDB.map((h,i)=>`<div class="db-row"><span>${h.name}</span> <span onclick="hotelDB.splice(${i},1);renderHotelDb()" style="color:#c00">×</span></div>`).join(''); }
+        function addHotelDbItem(){ const n=document.getElementById('newHName').value; if(n) { hotelDB.push({name:n, price:document.getElementById('newHPrice').value, type:'默认'}); renderHotelDb(); localStorage.setItem('xa_hotel_db', JSON.stringify(hotelDB));}}
+
+        function openTicketDb(){ document.getElementById('ticketDbModal').style.display='flex'; renderTicketDb(); }
+        function renderTicketDb(){ document.getElementById('ticketDbList').innerHTML = ticketDB.map((t,i)=>`<div class="db-row"><span>${t.name}</span> <span onclick="ticketDB.splice(${i},1);renderTicketDb()" style="color:#c00">×</span></div>`).join(''); }
+        function addTicketDbItem(){ const n=document.getElementById('newTName').value; if(n) { ticketDB.push({name:n, p1:document.getElementById('newTP1').value}); renderTicketDb(); localStorage.setItem('xa_ticket_db', JSON.stringify(ticketDB));}}
+
+        // 绑定搜索
+        function matchHotelDb(){
+            const val = document.getElementById('hotelNameInput').value;
+            const find = hotelDB.find(h=>h.name===val);
+            if(find){ document.getElementById('roomType').value=find.type; document.getElementById('hotelPrice').value=find.price; }
+        }
+        function matchTicketDb(){
+             const val = document.getElementById('spotNameInput').value;
+             const find = ticketDB.find(t=>t.name===val);
+             if(find) { document.getElementById('subPrice').value=find.p1; }
+        }
+    </script>
+</body>
+</html>
